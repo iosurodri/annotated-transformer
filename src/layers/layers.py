@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn.modules.normalization import LayerNorm
-from aux_functions import clones
+import math
+
+from src.layers.aux_functions import clones
 
 ### Auxiliar layers:
 
@@ -32,6 +35,18 @@ class SublayerConnection(nn.Module):
     def forward(self, x, sublayer):
         "Apply a residual connection to any sublayer with the same size"
         return x + self.dropout(sublayer(self.norm(x)))
+
+
+class PositionwiseFeedForward(nn.Module):
+    "Implements FNN equation."
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super().__init__()
+        self.w_1 = nn.Linear(d_model, d_ff)
+        self.w_2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        return self.w_2(self.dropout(F.relu(self.w_1(x))))
 
 
 ### Encoder and Decoder layers:
