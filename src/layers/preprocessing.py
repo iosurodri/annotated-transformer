@@ -19,15 +19,19 @@ class PositionalEncoding(nn.Module):
     """
     def __init__(self, d_model, dropout, max_len=5000):
         super().__init__()
-        self.dropout == nn.Dropout(p=dropout)  # Is dropout really necessary in positional encoding?
+        self.dropout = nn.Dropout(p=dropout)  # Is dropout really necessary in positional encoding?
 
-        # Compute the positional encodings once in log space.
+        # Precompute the positional encodings up to "max_len", once in log space.
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2) * -(math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + self.pe[:, :x.shape[1]]  # x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
+        # Positional encoding is implemented as a lookup table (all values are precomputed)
+        # Only the x.shape[1] first precomputed terms are necessary
+        # x = x + self.pe[:, :x.shape[1]]  # x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
+        x = x + self.pe[:x.shape[1], :]
         return self.dropout(x)

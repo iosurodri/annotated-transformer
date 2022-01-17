@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import copy
 
-from layers.layers import Encoder, EncoderLayer, Decoder, DecoderLayer, PositionwiseFeedForward
-from layers.preprocessing import Embeddings, PositionalEncoding
+from src.layers.layers import Encoder, EncoderLayer, Decoder, DecoderLayer, PositionwiseFeedForward
+from src.layers.preprocessing import Embeddings, PositionalEncoding
 from src.layers.attention import MultiHeadedAttention
 
 ### Generic EncoderDecoder structure:
@@ -24,14 +24,16 @@ class EncoderDecoder(nn.Module):
         
     def forward(self, src, tgt, src_mask, tgt_mask):
         "Take in and process masked src and target sequences."
-        return self.decode(self.encode(src, src_mask), src_mask,
-                            tgt, tgt_mask)
+        encoded_src = self.encode(src, src_mask)
+        return self.decode(encoded_src, src_mask, tgt, tgt_mask)
     
     def encode(self, src, src_mask):
-        return self.encoder(self.src_embed(src), src_mask)
+        embedded_src = self.src_embed(src)
+        return self.encoder(embedded_src, src_mask)
     
     def decode(self, memory, src_mask, tgt, tgt_mask):
-        return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
+        embedded_tgt = self.tgt_embed(tgt)
+        return self.decoder(embedded_tgt, memory, src_mask, tgt_mask)
 
 
 class Generator(nn.Module):
@@ -46,7 +48,7 @@ class Generator(nn.Module):
 
 def make_model(src_vocab, tgt_vocab, N=6, d_model=512, d_ff=2048, h=8, dropout=0.1):
     "Helper: Construct a model from hyperparameters."
-    c = copy.deepcopy()
+    c = copy.deepcopy
     attn = MultiHeadedAttention(h, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
     position = PositionalEncoding(d_model, dropout)
