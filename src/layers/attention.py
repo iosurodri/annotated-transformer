@@ -21,17 +21,15 @@ def dot_product_attention(query, key, value, mask=None, dropout=None):
 
 # TODO: Refactor this:
 
-def min_max_normalization(x):
-    x_min = x.min()
-    x_max = x.max()
-    return (x - x_min) / (x_max - x_min), x_min, x_max
+def min_max_normalization(x, x_min, x_max):
+    return (x - x_min) / (x_max - x_min)
 
 
 def min_max_denormalization(x, x_min, x_max):
     return x * (x_max - x_min) + x_min
 
 
-def ab_simm_attention(query, key, value, mask=None, dropout=None, norm_type='min_max'):
+def ab_simm_attention(query, key, value, mask=None, dropout=None, norm_type='min_max', reduction='mean'):
 
     available_normalizations = {
         'min_max': min_max_normalization
@@ -41,29 +39,47 @@ def ab_simm_attention(query, key, value, mask=None, dropout=None, norm_type='min
         'min_max': min_max_denormalization
     }
 
+    available_reductions = {
+        'mean': torch.mean,
+        'min': lambda x, dim, keepdim=False: torch.min(x, dim, keepdim)[0],
+        'max': lambda x, dim, keepdim=False: torch.max(x, dim, keepdim)[0],
+    }
+
     "Compute (a, b)-simmilarity Attention"
     d_k = query.size(-1)  # Scaling factor for the output is sqrt(d_k) (avoids vanishing gradient)
 
     # Normalize query and key vectors:
-    query_norm, a_query, b_query = available_normalizations[norm_type](query)
-    key_norm, a_key, b_key = available_normalizations[norm_type](key)  
+    min_val = torch.minimum(torch.min(query), torch.min(key))
+    max_val = torch.maximum(torch.max(query), torch.max(key))
+    query_norm = available_normalizations[norm_type](query, min_val, max_val)
+    key_norm = available_normalizations[norm_type](key, min_val, max_val)
 
     # TODO: Compute normalization
 
     # NAIVE IMPLEMENTATION 1 (memorywise)
-    cartesian_shape = list(query.unsqueeze(-2).shape)
-    cartesian_shape[-2] = key.shape[-2]
-    cartesian_subtraction = key.new_zeros(cartesian_shape)
+    # cartesian_shape = list(query.unsqueeze(-2).shape)
+    # cartesian_shape[-2] = key.shape[-2]
+    # cartesian_subtraction = key.new_zeros(cartesian_shape)
 
-    for i in range(query.shape[-2]):
-        cartesian_subtraction[:, :, i, :, :] = 1 - torch.abs(query_norm[:, :, i, :].unsqueeze(-2) - key_norm)
 
-    scores = torch.mean(cartesian_subtraction, dim=-1)
+    # for i in range(query.shape[-2]):
+    #     cartesian_subtraction[:, :, i, :, :] = 1 - torch.abs(query_norm[:, :, i, :].unsqueeze(-2) - key_norm)
+
+    scores = 1 - torch.abs(query_norm.unsqueeze(-2) - key_norm.unsqueeze(-3))
+    alpha = 0.3
+    beta = 1 - alpha
+    central_point = 0.5
+    scores = alpha * scores + beta * 0.5 * (torch.abs(query_norm - central_point).unsqueeze(-2) + torch.abs(key_norm - central_point).unsqueeze(-3))
+    scores = scores / 2
+
+    # scores = torch.mean(scores, dim=-1)
+    # scores = torch.min(scores, dim=-1)[0]
+    scores = torch.sum(scores, dim=-1)
 
     # scores = ...
 
     # Denormalize outputs:
-    # scores = available_denormalizations[norm_type](x, torch.min(a_query, a_key), torch.max(b_query, b_key))
+    # scores = available_denormalizations[norm_type](scores, min_val, max_val)
 
     if mask is not None:
         scores = scores.masked_fill(mask == 0, -1e9)  # All penalized values' scores are set to -infty (-1e9 in practice)
