@@ -29,7 +29,7 @@ def min_max_denormalization(x, x_min, x_max):
     return x * (x_max - x_min) + x_min
 
 
-def ab_simm_attention(query, key, value, mask=None, dropout=None, norm_type='min_max', reduction='mean'):
+def ab_simm_attention(query, key, value, mask=None, dropout=None, norm_type='min_max', reduction='mean', alpha=0.5, drastic=False):
 
     available_normalizations = {
         'min_max': min_max_normalization
@@ -66,14 +66,15 @@ def ab_simm_attention(query, key, value, mask=None, dropout=None, norm_type='min
     #     cartesian_subtraction[:, :, i, :, :] = 1 - torch.abs(query_norm[:, :, i, :].unsqueeze(-2) - key_norm)
 
     scores = 1 - torch.abs(query_norm.unsqueeze(-2) - key_norm.unsqueeze(-3))
-    alpha = 0.3
-    beta = 1 - alpha
     central_point = 0.5
-    scores = alpha * scores + beta * 0.5 * (torch.abs(query_norm - central_point).unsqueeze(-2) + torch.abs(key_norm - central_point).unsqueeze(-3))
-    scores = scores / 2
+    scores = alpha * scores + (1-alpha) * (torch.abs(query_norm - central_point).unsqueeze(-2) + torch.abs(key_norm - central_point).unsqueeze(-3))
+
+    if drastic:
+        # Linearly interpolate values from range [min(alpha, 1-alpha), 1] to [0, 1]
+        scores = (scores - min(alpha, 1-alpha)) / (1-min(alpha, 1-alpha))
 
     # scores = torch.mean(scores, dim=-1)
-    # scores = torch.min(scores, dim=-1)[0]
+    # scores = torch.max(scores, dim=-1)[0]
     scores = torch.sum(scores, dim=-1)
 
     # scores = ...
@@ -95,10 +96,10 @@ class MultiHeadedAttention(nn.Module):
 
     attention_types = {
         'dot_product': dot_product_attention,
-        'min_max': lambda query, key, value, mask=None, dropout=None: ab_simm_attention(query, key, value, mask, dropout, norm_type='min_max')
+        'min_max': lambda query, key, value, mask=None, dropout=None, alpha=0.5: ab_simm_attention(query, key, value, mask, dropout, norm_type='min_max', alpha=alpha)
     }
 
-    def __init__(self, h, d_model, dropout=0.1, attention='min_max'):
+    def __init__(self, h, d_model, dropout=0.1, attention='min_max', alpha=0.5):
     # def __init__(self, h, d_model, dropout=0.1, attention='dot_product'):
         """
         h: Number of attention heads
@@ -117,6 +118,8 @@ class MultiHeadedAttention(nn.Module):
         self.linears = clones(nn.Linear(d_model, d_model), 4)  # Linear layers will be applied to the whole dataset, before spliting it into each head
         self.attention = self.attention_types[attention]
         self.dropout = nn.Dropout(p=dropout)
+        # TODO: Debug
+        self.alpha = alpha
 
     def forward(self, query, key, value, mask=None):
         if mask is not None:
@@ -129,7 +132,7 @@ class MultiHeadedAttention(nn.Module):
         query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2) for l, x in zip(self.linears, (query, key, value))]
         
         # 2) Apply attention on all projected vectors in batch.
-        x, self.attn = self.attention(query, key, value, mask=mask, dropout=self.dropout)
+        x, self.attn = self.attention(query, key, value, mask=mask, dropout=self.dropout, alpha=self.alpha)
 
         # 3) "Concat" using a view and apply a final linear.
         x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
