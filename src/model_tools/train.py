@@ -45,28 +45,44 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
     import sys
-    sys.path.append('.')
+    import os
+    sys.path.append(os.path.join('..', '..'))
 
     from src.optim.regularization import LabelSmoothing
     from src.models.VanillaTransformer import make_model
     from src.optim.noam_opt import NoamOpt
     from src.data.load_data import data_gen
 
-    V = 11
-    criterion = LabelSmoothing(size=V, padding_idx=0, smoothing=0.0)
-    model = make_model(V, V, N=2)
-    model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400, torch.optim.Adam(
-        model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
-    
-    val_loss = []
-    for epoch in range(10):
-        model.train()
-        run_epoch(data_gen(V, 30, 20), model, SimpleLossCompute(model.generator, criterion, model_opt))
-        model.eval()
-        val_loss.append(run_epoch(data_gen(V, 30, 5), model, SimpleLossCompute(model.generator, criterion, None)))
-        print('Validation loss: {}'.format(val_loss[-1]))
-    
-    plt.figure()
-    plt.plot(val_loss)
-    plt.title('Accuracy validation')
-    plt.show()
+    import os
+
+    import numpy as np
+
+    PATH_IMAGES = os.path.join('..', '..', 'images')
+    alpha_tests_path = os.path.join(PATH_IMAGES, 'penalized_similarity_mean_scaledDk')
+    try:
+        os.mkdir(alpha_tests_path)
+    except FileExistsError:
+        pass
+
+    for alpha in np.arange(0, 1.01, 0.05):
+        alpha = round(alpha, 2)
+        print('\n\n\nNew run: alpha={}'.format(alpha))
+        V = 11
+        criterion = LabelSmoothing(size=V, padding_idx=0, smoothing=0.0)
+        model = make_model(V, V, N=2, alpha=alpha)
+        model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400, torch.optim.Adam(
+            model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
+        val_loss = []
+        for epoch in range(10):
+            model.train()
+            run_epoch(data_gen(V, 30, 20), model, SimpleLossCompute(model.generator, criterion, model_opt))
+            model.eval()
+            val_loss.append(run_epoch(data_gen(V, 30, 5), model, SimpleLossCompute(model.generator, criterion, None)))
+            print('Validation loss: {}'.format(val_loss[-1]))
+        # Plot the results (based on alpha values)
+        plt.figure()
+        plt.ylim(0, 2)
+        plt.plot(val_loss)
+        plt.title('alpha={}-Loss'.format(alpha))
+        plt.savefig(os.path.join(alpha_tests_path, 'alpha_{}.png'.format(str(alpha))))
+        # plt.show()
